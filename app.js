@@ -4,10 +4,11 @@
    - Backspace: 방금 친 만큼 지워짐 / Shift·Ctrl·방향키 등: 글자를 만들지 않음
    - 엑셀: 방향키·Enter·Tab으로 칸 이동, Backspace·Delete로 칸 비우기, 칸 클릭으로 선택
    - Esc: 보스 키(완성된 강의자료 화면으로 즉시 전환)
+   - Shift를 빠르게 3번: "접근 허가/거부" 팝업 이스터에그(글자는 안 만듦)
    화면 맨 아래 한 줄에는 실제로 친 내용이 그대로 보임(설정에서 끌 수 있음). */
 'use strict';
 
-const opts = Object.assign({ subject: 'biz', speed: 1, disguise: true, raw: true }, store.get('lb-opts', {}));
+const opts = Object.assign({ subject: 'biz', speed: 1, disguise: true, raw: true, keysnd: false }, store.get('lb-opts', {}));
 if (opts.ver !== 2) { opts.speed = 1; opts.ver = 2; }        // 예전 기본값(한 번에 3자)에서 한 글자씩으로 바꿈
 const saveOpts = () => store.set('lb-opts', opts);
 const ORIG_TITLE = document.title;
@@ -88,6 +89,42 @@ function makeTyper(original, render, kind) {
   };
 }
 
+/* ---------- 타자 소리(설정에서 켬, 기본 끔) — 외부 파일 없이 짧은 잡음으로 합성 ---------- */
+let keyNoise = null;
+function keyClick(kind) {
+  if (!opts.keysnd) return;
+  const ctx = Sfx.ensure();
+  if (!ctx) return;
+  try {
+    if (!keyNoise) {
+      keyNoise = ctx.createBuffer(1, Math.floor(ctx.sampleRate * .04), ctx.sampleRate);
+      const d = keyNoise.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+    }
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = keyNoise;
+    f.type = 'bandpass';
+    f.frequency.value = kind === 'enter' ? 900 : kind === 'back' ? 1400 : 2200 + Math.random() * 900;
+    g.gain.value = kind === 'enter' ? .5 : .32;
+    src.connect(f).connect(g).connect(ctx.destination);
+    src.start();
+    keyClick.played = (keyClick.played || 0) + 1;
+  } catch (e) { /* 소리 실패는 무시 */ }
+}
+
+/* ---------- 이스터에그: Shift 3번 → 접근 허가/거부 팝업(번갈아) ---------- */
+let accessCount = 0, accessTimer = 0;
+function accessPopup() {
+  const granted = accessCount++ % 2 === 0;
+  const old = $('#access');
+  if (old) old.remove();
+  const el = h(`<div id="access" class="access ${granted ? 'ok' : 'no'}" role="status"><b>${granted ? '접근 허가' : '접근 거부'}</b><span>${granted ? 'ACCESS GRANTED' : 'ACCESS DENIED'}</span></div>`);
+  document.body.append(el);
+  Sfx.play(granted ? 'ok' : 'bad');
+  clearTimeout(accessTimer);
+  accessTimer = setTimeout(() => el.remove(), 1600);
+}
+
 /* ---------- 키보드·휴대폰 입력 받기 ----------
    숨은 입력칸에 실제로 쳐서, 입력칸 내용의 변화(자모 수 증감·줄바꿈)로 동작을 정함.
    → 한글 조합 중 Backspace, 휴대폰 가상 키보드도 똑같이 처리됨. 입력칸 내용 = "내가 친 내용". */
@@ -119,6 +156,7 @@ function bindInput(hd, area) {
   };
   const addRaw = ch => { sink.value += ch; prev = sink.value; showRaw(); };
   const focus = () => sink.focus({ preventScroll: true });
+  let shifts = [];
 
   sink.addEventListener('keydown', e => {
     const bossEl = $('#boss');
@@ -128,8 +166,17 @@ function bindInput(hd, area) {
       if (stepY) page.scrollBy({ top: stepY });
       e.preventDefault(); return;
     }
+    if (e.key === 'Shift') {                         // 글자는 안 만들고, 빠르게 3번이면 이스터에그
+      if (!e.repeat) {
+        const now = performance.now();
+        shifts = shifts.filter(t => now - t < 900).concat(now);
+        if (shifts.length >= 3) { shifts = []; accessPopup(); }
+      }
+      return;
+    }
+    shifts = [];
     if (e.key === 'Tab') { e.preventDefault(); addRaw('\t'); hd.tab(e.shiftKey); return; }
-    if (NAV_KEYS.includes(e.key)) { e.preventDefault(); if (hd.nav) hd.nav(e.key, e.shiftKey); return; }
+    if (NAV_KEYS.includes(e.key)) { e.preventDefault(); if (hd.nav) hd.nav(e.key, e.shiftKey, e.ctrlKey || e.metaKey); return; }
     if (e.key === 'Delete') { e.preventDefault(); if (hd.del) hd.del(); return; }
     if (e.key === 'Enter' && hd.enterKey) { e.preventDefault(); addRaw('\n'); hd.enterKey(e.shiftKey); return; }
   });
@@ -140,22 +187,24 @@ function bindInput(hd, area) {
       let k = 0;
       while (k < prev.length && k < v.length && prev[k] === v[k]) k++;
       const added = v.slice(k);
+      keyClick(added.includes('\n') ? 'enter' : 'type');
       if (added.includes('\n')) (hd.enterKey || hd.enter)(false);
       else if (/^ +$/.test(added) && hd.space) hd.space();
       else for (let n = 0; n < Math.min(d, 12); n++) hd.type();
     } else if (d < 0) {
+      keyClick('back');
       for (let n = 0; n < Math.min(-d, 40); n++) hd.back();
     }
     if (v.length > 4000) sink.value = v.slice(-2000);
     prev = sink.value;
     showRaw();
   });
-  const onDown = e => { if (!e.target.closest('.fsbtn')) setTimeout(focus, 0); };
+  const onDown = e => { if (!e.target.closest('.fsbtn, [data-file], [data-subj]')) setTimeout(focus, 0); };
   area.addEventListener('pointerdown', onDown);
   focus();
   return {
     focus,
-    off() { sink.remove(); if (rawbar) rawbar.remove(); document.body.classList.remove('has-raw'); area.removeEventListener('pointerdown', onDown); }
+    off() { sink.remove(); const ac = $('#access'); if (ac) ac.remove(); if (rawbar) rawbar.remove(); document.body.classList.remove('has-raw'); area.removeEventListener('pointerdown', onDown); }
   };
 }
 
@@ -180,20 +229,23 @@ Router.on('/', root => {
         <a class="mode card" href="#/note"><div class="mprev note-prev"><i></i><i></i><i></i><i></i></div><b>📓 필기 모드</b><span class="muted small">노트 앱에 강의 필기하는 척</span></a>
         <a class="mode card" href="#/code"><div class="mprev code-prev"><i></i><i></i><i></i><i></i></div><b>💻 코딩 모드</b><span class="muted small">과제 코드 짜는 척</span></a>
         <a class="mode card" href="#/sheet"><div class="mprev sheet-prev"><i></i><i></i><i></i><i></i></div><b>📊 엑셀 모드</b><span class="muted small">팀플 예산 정리하는 척 (방향키·Enter·Tab으로 칸 이동)</span></a>
+        <a class="mode card" href="#/paper"><div class="mprev paper-prev"><i></i><i></i><i></i><i></i></div><b>📄 논문 모드</b><span class="muted small">PDF 논문 읽으며 형광펜 긋는 척</span></a>
       </div>
       <div class="card stack">
         <div><label class="field">필기 과목</label><div class="row" id="subj">${Object.entries(NOTES).map(([k, n]) => `<button class="chip ${opts.subject === k ? 'on' : ''}" data-k="${k}">${n.name}</button>`).join('')}</div></div>
         <div><label class="field">긴 줄에서 한 번 누를 때 나오는 글자 수 <b id="spdv">${opts.speed}</b> (짧은 줄은 한 번에 나와요)</label><input type="range" id="spd" min="1" max="4" value="${opts.speed}"></div>
         <label class="row small"><input type="checkbox" id="dis" ${opts.disguise ? 'checked' : ''}> 탭 이름·아이콘을 강의자료 PDF처럼 바꾸기</label>
         <label class="row small"><input type="checkbox" id="raw" ${opts.raw ? 'checked' : ''}> 화면 맨 아래에 내가 실제로 친 내용 한 줄로 보여 주기</label>
+        <label class="row small"><input type="checkbox" id="ksnd" ${opts.keysnd ? 'checked' : ''}> 타자 소리 내기 (강의실에서는 끄세요)</label>
       </div>
-      <div class="notice"><b>Esc</b> = 보스 키. 누르는 즉시 완성된 강의자료 화면으로 바뀌어요. 휴대폰은 화면을 누르면 키보드가 열려요.</div>
+      <div class="notice"><b>Esc</b> = 보스 키. 누르는 즉시 완성된 강의자료 화면으로 바뀌어요. 휴대폰은 화면을 누르면 키보드가 열려요. <span class="muted">(비밀: Shift를 빠르게 세 번)</span></div>
       <p class="muted small center">교수님 죄송합니다. 이 사이트는 농담입니다. 수업은 들읍시다.</p>
     </section>`));
   $$('#subj .chip').forEach(b => b.onclick = () => { opts.subject = b.dataset.k; saveOpts(); $$('#subj .chip').forEach(x => x.classList.toggle('on', x === b)); });
   $('#spd').oninput = e => { opts.speed = Number(e.target.value); $('#spdv').textContent = opts.speed; saveOpts(); };
   $('#dis').onchange = e => { opts.disguise = e.target.checked; saveOpts(); };
   $('#raw').onchange = e => { opts.raw = e.target.checked; saveOpts(); };
+  $('#ksnd').onchange = e => { opts.keysnd = e.target.checked; saveOpts(); if (opts.keysnd) keyClick('type'); };
 });
 
 function fullscreenBtn() {
@@ -202,58 +254,159 @@ function fullscreenBtn() {
   return b;
 }
 
-/* ---------- 필기 모드(노트 앱) ---------- */
+/* ---------- 필기 모드(노트 앱) — 왼쪽 노트 목록을 누르면 과목이 바뀜(쓰던 내용은 과목별로 남음) ---------- */
 Router.on('/note', root => {
-  const n = NOTES[opts.subject];
-  disguise(opts.disguise, n.file);
   document.body.classList.add('mode-on');
   root.append(h(`
     <section class="app note-app">
-      <aside class="side"><div class="sidehead">내 노트</div>${Object.values(NOTES).map(x => `<div class="sideitem ${x === n ? 'on' : ''}">${esc(x.name)}</div>`).join('')}<div class="sideitem">기말 정리</div><div class="sideitem">팀플 회의록</div></aside>
-      <div class="paper"><div class="meta muted small">${new Date().toLocaleDateString('ko-KR')} · ${esc(n.name)}</div><div class="note-view" id="out"><span class="caret"></span></div></div>
+      <aside class="side"><div class="sidehead">내 노트</div>${Object.entries(NOTES).map(([k, x]) => `<button type="button" class="sideitem" data-subj="${k}">${esc(x.name)}</button>`).join('')}<div class="sideitem">기말 정리</div><div class="sideitem">팀플 회의록</div></aside>
+      <div class="paper"><div class="meta muted small" id="nmeta"></div><div class="note-view" id="out"><span class="caret"></span></div></div>
     </section>`));
   root.append(fullscreenBtn());
   const out = $('#out'), paper = $('.paper');
-  const t = makeTyper(n.text, txt => {
+  const typers = {};
+  let cur;
+  const draw = txt => {
     out.innerHTML = renderMarkup(txt);
     const last = out.lastElementChild;
     (last || out).insertAdjacentHTML('beforeend', '<span class="caret"></span>');
     paper.scrollTop = paper.scrollHeight;
-  }, 'note');
-  const io = bindInput({ type: t.type, space: t.space, enter: t.enter, tab: t.tab, back: t.back }, paper);
-  return () => { t.stop(); io.off(); document.body.classList.remove('mode-on'); disguise(false); };
+  };
+  function open(k) {
+    if (!NOTES[k]) k = 'biz';
+    opts.subject = k; saveOpts();
+    const n = NOTES[k];
+    disguise(opts.disguise, n.file);
+    $('#nmeta').textContent = `${new Date().toLocaleDateString('ko-KR')} · ${n.name}`;
+    $$('.side [data-subj]').forEach(b => { b.classList.toggle('on', b.dataset.subj === k); b.setAttribute('aria-current', b.dataset.subj === k ? 'page' : 'false'); });
+    if (!typers[k]) typers[k] = { text: '', t: makeTyper(n.text, txt => { typers[k].text = txt; if (cur === typers[k]) draw(txt); }, 'note') };
+    cur = typers[k];
+    draw(cur.text);
+  }
+  open(opts.subject);
+  const io = bindInput({ type: () => cur.t.type(), space: () => cur.t.space(), enter: () => cur.t.enter(), tab: () => cur.t.tab(), back: () => cur.t.back() }, paper);
+  $$('.side [data-subj]').forEach(b => b.onclick = () => { open(b.dataset.subj); io.focus(); });
+  return () => { io.off(); document.body.classList.remove('mode-on'); disguise(false); };
 });
 
-/* ---------- 코딩 모드(코드 편집기) ---------- */
+/* ---------- 코딩 모드(코드 편집기) — 파일 탐색기·탭을 눌러 파일을 바꿔 가며 침(파일마다 쓰던 내용 유지) ---------- */
+function highlightMd(text) {
+  return text.split('\n').map((line, i) => {
+    let html = esc(line);
+    if (/^#/.test(line)) html = `<span class="kw">${html}</span>`;
+    else if (/^ {4}/.test(line)) html = `<span class="st">${html}</span>`;
+    else if (/^- /.test(line)) html = `<span class="dc">-</span>${esc(line.slice(1))}`;
+    return `<div class="ln"><i>${i + 1}</i><span>${html}</span></div>`;
+  }).join('');
+}
+const CODE_FILES = [
+  { name: 'timetable.py', icon: '🐍', lang: 'Python', src: () => CODE, hl: highlightPy },
+  { name: 'test_timetable.py', icon: '🧪', lang: 'Python', src: () => TEST_CODE, hl: highlightPy },
+  { name: 'README.md', icon: '📝', lang: 'Markdown', src: () => README_MD, hl: highlightMd }
+];
 Router.on('/code', root => {
-  disguise(opts.disguise, 'timetable.py — 과제3');
   document.body.classList.add('mode-on', 'dark');
   root.append(h(`
     <section class="app code-app">
-      <div class="tabs"><span class="tab on">timetable.py</span><span class="tab">test_timetable.py</span><span class="tab">README.md</span></div>
-      <div class="editor" id="ed"><span class="caret"></span></div>
-      <div class="statusbar"><span id="lc">줄 1, 열 1</span><span>공백: 4</span><span>UTF-8</span><span>Python</span></div>
-      <div class="term" id="term"><div class="termhead">터미널</div><div id="tl"></div></div>
+      <aside class="explorer"><div class="exhead">탐색기</div><div class="exfolder">▾ 과제3</div>${CODE_FILES.map((f, i) => `<button type="button" class="exfile" data-file="${i}">${f.icon} ${esc(f.name)}</button>`).join('')}<div class="exfile dim">📁 data</div><div class="exfile dim">⚙ requirements.txt</div></aside>
+      <div class="codemain">
+        <div class="tabs" role="tablist">${CODE_FILES.map((f, i) => `<button type="button" class="tab" role="tab" data-file="${i}">${esc(f.name)}</button>`).join('')}</div>
+        <div class="editor" id="ed"><span class="caret"></span></div>
+        <div class="statusbar"><span id="lc">줄 1, 열 1</span><span>공백: 4</span><span>UTF-8</span><span id="lang">Python</span></div>
+        <div class="term" id="term"><div class="termhead">터미널</div><div id="tl"></div></div>
+      </div>
     </section>`));
   root.append(fullscreenBtn());
   const ed = $('#ed'), tl = $('#tl'), term = $('#term');
-  let shownTerm = 0;
-  const t = makeTyper(CODE, txt => {
-    ed.innerHTML = highlightPy(txt);
+  let shownTerm = -1, curIdx = 0;
+  const texts = CODE_FILES.map(() => '');
+  function draw() {
+    const f = CODE_FILES[curIdx], txt = texts[curIdx];
+    ed.innerHTML = f.hl(txt);
     const lastLine = $$('.ln > span', ed).pop();
     if (lastLine) lastLine.insertAdjacentHTML('beforeend', '<span class="caret"></span>');
     ed.scrollTop = ed.scrollHeight;
     const lines = txt.split('\n');
     $('#lc').textContent = `줄 ${lines.length}, 열 ${lines[lines.length - 1].length + 1}`;
-    const want = Math.min(TERMINAL_LINES.length, Math.floor(lines.length / 14) * 2);   // 지우면 터미널도 같이 줄어듦
+    // 터미널은 세 파일을 친 양을 합쳐서 조금씩 늘어남(지우면 같이 줄어듦)
+    const total = texts.reduce((s, x) => s + (x ? x.split('\n').length : 0), 0);
+    const want = Math.min(TERMINAL_LINES.length, Math.floor(total / 14) * 2);
     if (want !== shownTerm) {
       shownTerm = want;
       tl.innerHTML = TERMINAL_LINES.slice(0, want).map(x => `<div class="tl">${esc(x)}</div>`).join('');
       term.scrollTop = term.scrollHeight;
     }
-  }, 'code');
-  const io = bindInput({ type: t.type, space: t.space, enter: t.enter, tab: t.tab, back: t.back }, ed);
-  return () => { t.stop(); io.off(); document.body.classList.remove('mode-on', 'dark'); disguise(false); };
+  }
+  const typers = CODE_FILES.map((f, i) => makeTyper(f.src(), txt => { texts[i] = txt; if (i === curIdx) draw(); }, 'code'));
+  function open(i) {
+    curIdx = (i + CODE_FILES.length) % CODE_FILES.length;
+    const f = CODE_FILES[curIdx];
+    disguise(opts.disguise, `${f.name} — 과제3`);
+    $('#lang').textContent = f.lang;
+    $$('[data-file]').forEach(b => {
+      const on = Number(b.dataset.file) === curIdx;
+      b.classList.toggle('on', on);
+      if (b.classList.contains('tab')) b.setAttribute('aria-selected', String(on));
+    });
+    draw();
+  }
+  const t = () => typers[curIdx];
+  const io = bindInput({
+    type: () => t().type(), space: () => t().space(), enter: () => t().enter(), tab: () => t().tab(), back: () => t().back(),
+    nav(key, shift, ctrl) { if (ctrl && key === 'PageDown') open(curIdx + 1); else if (ctrl && key === 'PageUp') open(curIdx - 1); }   // 편집기처럼 Ctrl+PageDown/PageUp으로 탭 이동
+  }, ed);
+  $$('[data-file]').forEach(b => b.onclick = () => { open(Number(b.dataset.file)); io.focus(); });
+  open(0);
+  return () => { io.off(); document.body.classList.remove('mode-on', 'dark'); disguise(false); };
+});
+
+/* ---------- 논문 모드(PDF 뷰어) — 문단을 다 쓰면 형광펜이 저절로 그어짐 ---------- */
+function paperLine(line, done) {
+  let cls = 'pp', body = line;
+  if (line.startsWith('# ')) { cls = 'pt'; body = line.slice(2); }
+  else if (line.startsWith('## ')) { cls = 'ps'; body = line.slice(3); }
+  else if (line.startsWith('@ ')) { cls = 'pa'; body = line.slice(2); }
+  else if (line.startsWith('> ')) { cls = 'pab'; body = line.slice(2); }
+  // 쓰는 중인 줄은 형광펜 표시 없이, 줄을 다 쓰면 형광펜이 그어지는 애니메이션
+  body = esc(body).replace(/==(.+?)(==|$)/g, done ? '<mark class="hl">$1</mark>' : '$1');
+  return `<div class="${cls}">${body || '&nbsp;'}</div>`;
+}
+Router.on('/paper', root => {
+  disguise(opts.disguise, PAPER.file);
+  document.body.classList.add('mode-on', 'pdfmode');
+  root.append(h(`
+    <section class="app paper-app">
+      <div class="pdfbar"><span>📄 ${esc(PAPER.file)}</span><span class="grow"></span><span id="pg">1 / ${PAPER.pages}</span><span>−</span><span>100%</span><span>+</span><span title="형광펜">🖍</span></div>
+      <div class="pdfbody">
+        <aside class="thumbs">${Array.from({ length: PAPER.pages }, (_, i) => `<div class="thumb ${i ? '' : 'on'}"><i></i><i></i><i></i><span>${i + 1}</span></div>`).join('')}</aside>
+        <div class="pdfscroll" id="psc"><div class="pdfsheet"><div id="pout"></div><div class="pnum" id="pnum">- 1 -</div></div></div>
+      </div>
+    </section>`));
+  root.append(fullscreenBtn());
+  const pout = $('#pout'), psc = $('#psc');
+  const t = makeTyper(PAPER.text, txt => {
+    const lines = txt.split('\n');
+    const doneCount = lines.length - 1;              // 마지막 줄을 뺀 나머지는 다 쓴 줄
+    // 다 쓴 줄은 그대로 두고(형광펜 애니메이션이 한 번만 나오게), 늘거나 줄어든 만큼만 고침
+    const old = $('.cur', pout);
+    if (old) old.remove();                           // 쓰는 중인 줄은 매번 새로 그림
+    while (pout.children.length > doneCount) pout.lastElementChild.remove();
+    for (let i = pout.children.length; i < doneCount; i++) pout.insertAdjacentHTML('beforeend', paperLine(lines[i], true));
+    pout.insertAdjacentHTML('beforeend', paperLine(lines[doneCount], false));
+    const cur = pout.lastElementChild;
+    cur.classList.add('cur');
+    cur.insertAdjacentHTML('beforeend', '<span class="caret"></span>');
+    psc.scrollTop = psc.scrollHeight;
+    const page = clamp(Math.floor(doneCount / 4) + 1, 1, PAPER.pages);
+    $('#pg').textContent = `${page} / ${PAPER.pages}`;
+    $('#pnum').textContent = `- ${page} -`;
+    $$('.thumb').forEach((x, i) => x.classList.toggle('on', i === page - 1));
+  }, 'note');
+  const io = bindInput({
+    type: t.type, space: t.space, enter: t.enter, tab: t.tab, back: t.back,
+    nav(key) { const y = { ArrowDown: 60, ArrowUp: -60, PageDown: 500, PageUp: -500 }[key]; if (y) psc.scrollBy({ top: y }); }
+  }, psc);
+  return () => { io.off(); document.body.classList.remove('mode-on', 'pdfmode'); disguise(false); };
 });
 
 /* ---------- 엑셀 모드(스프레드시트) ---------- */
