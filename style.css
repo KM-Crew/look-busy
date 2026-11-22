@@ -96,3 +96,65 @@ body.dark { background: #1a1b26; }
 .pc .lb-home { max-width: 980px; margin: 0 auto; }
 .pc .modes { grid-template-columns: repeat(3, 1fr); gap: 18px; }
 .pc .mprev { height: 120px; }
+
+/* ---------- S3: 논문 모드·파일 탐색기·이스터에그 ---------- */
+.paper-prev { background: #525659; padding: 8px 18px; } .paper-prev i { background: #fff; height: 6px; } .paper-prev i:nth-child(2) { background: linear-gradient(90deg, #fff 30%, #fff07a 30% 70%, #fff 70%); }
+.pc .modes { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1100px) { .pc .modes { grid-template-columns: repeat(2, 1fr); } }
+
+/* 노트 목록 버튼 */
+button.sideitem { display: block; width: 100%; text-align: left; border: 0; background: none; font: inherit; cursor: pointer; }
+button.sideitem:hover { background: #f6f4ee; }
+button.sideitem.on { background: #fff; }
+
+/* 코딩: 탐색기 + 탭 */
+.codemain { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.code-app { flex-direction: row; }
+.explorer { width: 210px; flex: none; background: #16161e; border-right: 1px solid #101014; font-size: 13px; padding: 8px 0; font-family: var(--font); }
+.exhead { font-size: 11px; letter-spacing: .1em; color: #565f89; padding: 4px 14px 8px; }
+.exfolder { padding: 3px 14px; color: #a9b1d6; font-weight: 700; }
+.exfile { display: block; width: 100%; text-align: left; border: 0; background: none; color: #a9b1d6; font: inherit; padding: 4px 14px 4px 28px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exfile:hover { background: #1f2030; }
+.exfile.on { background: #283457; color: #fff; }
+.exfile.dim { color: #565f89; cursor: default; }
+button.tab { border: 0; border-right: 1px solid #101014; border-top: 2px solid transparent; background: none; font: inherit; cursor: pointer; }
+button.tab.on { border-top-color: #7aa2f7; }
+@media (max-width: 640px) { .explorer { display: none; } }
+
+/* 논문(PDF 뷰어) */
+body.pdfmode { background: #525659; }
+.paper-app { flex-direction: column; background: #525659; }
+.pdfbody { flex: 1; min-height: 0; display: flex; }
+.thumbs { width: 120px; flex: none; overflow: auto; background: #3c3f42; padding: 12px 18px; display: flex; flex-direction: column; gap: 12px; }
+.thumb { background: #fff; aspect-ratio: 210 / 297; border-radius: 2px; padding: 10px 8px; display: flex; flex-direction: column; gap: 5px; position: relative; opacity: .7; border: 3px solid transparent; }
+.thumb.on { opacity: 1; border-color: #8ab4f8; }
+.thumb i { display: block; height: 3px; background: #ccc; } .thumb i:first-child { height: 5px; width: 70%; background: #999; }
+.thumb span { position: absolute; bottom: -18px; left: 0; right: 0; text-align: center; font-size: 10px; color: #ccc; }
+.pdfscroll { flex: 1; overflow: auto; padding: 24px 16px 80px; cursor: text; }
+.pdfsheet { background: #fff; max-width: 800px; min-height: 1000px; margin: 0 auto; padding: 64px clamp(20px, 7vw, 72px) 48px; box-shadow: 0 4px 18px rgba(0,0,0,.4); font-family: "Noto Serif KR", "Batang", "AppleMyungjo", serif; color: #1e1e1e; position: relative; }
+.pdfsheet .pt { font-size: 22px; font-weight: 800; text-align: center; line-height: 1.5; margin-bottom: 10px; }
+.pdfsheet .pa { text-align: center; font-size: 13px; color: #555; margin-bottom: 22px; }
+.pdfsheet .pab { font-size: 13.5px; line-height: 1.8; background: #f6f6f3; padding: 14px 18px; margin-bottom: 18px; border-left: 3px solid #999; }
+.pdfsheet .ps { font-size: 16px; font-weight: 800; margin: 20px 0 6px; }
+.pdfsheet .pp { font-size: 14.5px; line-height: 1.9; text-indent: 1em; text-align: justify; }
+.pdfsheet .pnum { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; font-size: 12px; color: #888; }
+mark.hl { color: inherit; background: linear-gradient(transparent 40%, rgba(255, 230, 0, .75) 40%) no-repeat; background-size: 100% 100%; animation: hlsweep .7s ease-out; }
+@keyframes hlsweep { from { background-size: 0% 100%; } to { background-size: 100% 100%; } }
+.reduce-motion mark.hl { animation: none; }
+@media (max-width: 640px) { .thumbs { display: none; } .pdfscroll { padding: 10px 6px 60px; } .pdfsheet { padding: 32px 18px 40px; min-height: 0; } }
+
+/* 이스터에그: 접근 허가/거부 */
+.access { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 1000; padding: 22px 42px; border: 3px solid; border-radius: 6px; background: rgba(0, 0, 0, .88); font-family: "D2Coding", Consolas, monospace; text-align: center; display: flex; flex-direction: column; gap: 4px; animation: accin .18s ease-out; pointer-events: none; }
+.access b { font-size: 34px; letter-spacing: .08em; }
+.access span { font-size: 14px; letter-spacing: .3em; }
+.access.ok { color: #3cff7a; border-color: #3cff7a; box-shadow: 0 0 30px rgba(60, 255, 122, .45); }
+.access.no { color: #ff4d4d; border-color: #ff4d4d; box-shadow: 0 0 30px rgba(255, 77, 77, .45); }
+@keyframes accin { from { transform: translate(-50%, -50%) scale(1.3); opacity: 0; } }
+.reduce-motion .access { animation: none; }
+.paper-app .pdfbar span { white-space: nowrap; }
+.paper-app .pdfbar span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) {
+  .paper-app .pdfbar { gap: 10px; }
+  .paper-app .pdfbar span:nth-child(n+4) { display: none; }
+  .pdfsheet .pp { text-align: left; }
+}
