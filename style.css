@@ -73,3 +73,8 @@ body.dark { background: #1a1b26; }
 .pdfbar { display: flex; gap: 16px; align-items: center; padding: 8px 16px; background: #323639; color: #eee; font-size: 13px; }
 .pdfpage { background: #fff; max-width: 820px; width: calc(100% - 32px); margin: 20px auto; padding: 48px clamp(20px, 6vw, 64px); overflow: auto; box-shadow: 0 4px 18px rgba(0,0,0,.4); }
 .bosshint { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 11px; color: #aaa; opacity: .4; }
+
+/* ---------- PC 화면 ---------- */
+.pc .lb-home { max-width: 980px; margin: 0 auto; }
+.pc .modes { grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.pc .mprev { height: 120px; }
