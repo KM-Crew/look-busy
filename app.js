@@ -45,25 +45,17 @@ function highlightPy(code) {
 
 /* ---------- 타자기: 키 종류별로 원래 프로그램처럼 반응 ---------- */
 /* 직접 치는 느낌: 짧은 줄(들여쓰기 빼고 SHORT자 이하)은 한 번에, 긴 줄은 키 한 번에 opts.speed자(기본 1자)씩.
-   긴 줄 중간에 Enter → 남은 글자를 사용자가 치던 속도로 한 글자씩 자동으로 써 내려간 뒤 줄 바꿈. */
+   Enter → 쓰던 줄을 즉시 끝까지 완성하고 줄 바꿈(코드는 다음 줄 들여쓰기까지). */
 const SHORT = 18;
 function makeTyper(original, render, kind) {
-  let source = original, pos = 0, anim = null;
+  let source = original, pos = 0;
   const hist = [];                                   // 키 한 번마다 이전 위치를 쌓음 → Backspace로 되돌림
-  const stamps = [];                                 // 최근 키 입력 시각 → 타자 속도
   const ensure = need => { while (source.length < need + 400) source += '\n\n' + original; };
   const lineEnd = p => { ensure(p + 400); const e = source.indexOf('\n', p); return e < 0 ? source.length : e; };
   const lineStart = p => source.lastIndexOf('\n', p - 1) + 1;
   const indentEnd = p => { while (source[p] === ' ') p++; return p; };
   const isShort = p => source.slice(lineStart(p), lineEnd(p)).trim().length <= SHORT;
-  const show = () => render(source.slice(0, pos));
-  const stop = () => { if (anim) { clearTimeout(anim); anim = null; } };
-  const tick = () => { stamps.push(performance.now()); if (stamps.length > 8) stamps.shift(); };
-  const rhythm = () => {                             // 최근 키 간격의 중앙값(너무 빠르거나 느리면 잘라냄)
-    const d = stamps.slice(1).map((t, i) => t - stamps[i]).filter(x => x < 1500).sort((a, b) => a - b);
-    return d.length ? clamp(d[Math.floor(d.length / 2)], 35, 220) : 110;
-  };
-  const go = np => { stop(); hist.push(pos); ensure(np); pos = np; show(); };
+  const go = np => { hist.push(pos); ensure(np); pos = np; render(source.slice(0, pos)); };
   // 다음 줄로 넘어가기: 줄바꿈 + (코드면 들여쓰기) + (짧은 줄이면 그 줄 전체)
   const nextLineFrom = p => {
     let np = p + 1;
@@ -72,7 +64,6 @@ function makeTyper(original, render, kind) {
     return np;
   };
   function one() {                                   // 글자 키 한 번
-    tick();
     ensure(pos + 400);
     if (source[pos] === '\n') {                      // 줄 끝에서 계속 치면 다음 줄로(긴 줄이면 첫 글자까지)
       const np = nextLineFrom(pos);
@@ -86,27 +77,14 @@ function makeTyper(original, render, kind) {
   return {
     type: one,
     space: one,                                      // 스페이스도 글자 하나
-    enter() {
-      tick();
-      const e = lineEnd(pos);
-      if (pos === e || e - pos <= SHORT) { go(nextLineFrom(e)); return; }
-      // 남은 부분이 길면 한 글자씩 자동 타이핑
-      stop(); hist.push(pos);
-      const target = nextLineFrom(e), gap = rhythm();
-      const step = () => {
-        if (pos < e) { pos++; show(); anim = setTimeout(step, gap * (0.7 + Math.random() * 0.6)); }
-        else { pos = target; show(); anim = null; }
-      };
-      step();
-    },
+    enter() { go(nextLineFrom(lineEnd(pos))); },     // 쓰던 줄을 즉시 완성하고 줄 바꿈
     tab() {
-      tick();
       ensure(pos + 50);
       const end = indentEnd(pos);
       go(end > pos ? end : pos + (kind === 'code' ? 4 : 2));
     },
-    back() { stop(); if (hist.length) { pos = hist.pop(); show(); } },
-    stop
+    back() { if (hist.length) { pos = hist.pop(); render(source.slice(0, pos)); } },
+    stop() { /* 자동 타이핑이 없어져 멈출 것 없음(화면 정리 호출 호환용) */ }
   };
 }
 
