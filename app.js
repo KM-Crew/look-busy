@@ -82,7 +82,7 @@ function boss() {
 Router.on('/', root => {
   disguise(false);
   root.append(h(`
-    <section class="stack">
+    <section class="stack lb-home">
       <h1>강의 시간,<br>열공하는 척 끝판왕</h1>
       <p class="muted">모드를 고르고 <b>아무 키나 마구</b> 두드리세요. 화면에는 그럴싸한 필기·코드·표가 착착 써집니다.</p>
       <div class="modes">
