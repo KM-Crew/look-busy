@@ -7,7 +7,8 @@
    화면 맨 아래 한 줄에는 실제로 친 내용이 그대로 보임(설정에서 끌 수 있음). */
 'use strict';
 
-const opts = Object.assign({ subject: 'biz', speed: 3, disguise: true, raw: true }, store.get('lb-opts', {}));
+const opts = Object.assign({ subject: 'biz', speed: 1, disguise: true, raw: true }, store.get('lb-opts', {}));
+if (opts.ver !== 2) { opts.speed = 1; opts.ver = 2; }        // 예전 기본값(한 번에 3자)에서 한 글자씩으로 바꿈
 const saveOpts = () => store.set('lb-opts', opts);
 const ORIG_TITLE = document.title;
 const ORIG_ICON = $('link[rel=icon]').href;
@@ -43,33 +44,69 @@ function highlightPy(code) {
 }
 
 /* ---------- 타자기: 키 종류별로 원래 프로그램처럼 반응 ---------- */
+/* 직접 치는 느낌: 짧은 줄(들여쓰기 빼고 SHORT자 이하)은 한 번에, 긴 줄은 키 한 번에 opts.speed자(기본 1자)씩.
+   긴 줄 중간에 Enter → 남은 글자를 사용자가 치던 속도로 한 글자씩 자동으로 써 내려간 뒤 줄 바꿈. */
+const SHORT = 18;
 function makeTyper(original, render, kind) {
-  let source = original, pos = 0;
+  let source = original, pos = 0, anim = null;
   const hist = [];                                   // 키 한 번마다 이전 위치를 쌓음 → Backspace로 되돌림
+  const stamps = [];                                 // 최근 키 입력 시각 → 타자 속도
   const ensure = need => { while (source.length < need + 400) source += '\n\n' + original; };
-  const go = np => { hist.push(pos); ensure(np); pos = np; render(source.slice(0, pos)); };
+  const lineEnd = p => { ensure(p + 400); const e = source.indexOf('\n', p); return e < 0 ? source.length : e; };
+  const lineStart = p => source.lastIndexOf('\n', p - 1) + 1;
+  const indentEnd = p => { while (source[p] === ' ') p++; return p; };
+  const isShort = p => source.slice(lineStart(p), lineEnd(p)).trim().length <= SHORT;
+  const show = () => render(source.slice(0, pos));
+  const stop = () => { if (anim) { clearTimeout(anim); anim = null; } };
+  const tick = () => { stamps.push(performance.now()); if (stamps.length > 8) stamps.shift(); };
+  const rhythm = () => {                             // 최근 키 간격의 중앙값(너무 빠르거나 느리면 잘라냄)
+    const d = stamps.slice(1).map((t, i) => t - stamps[i]).filter(x => x < 1500).sort((a, b) => a - b);
+    return d.length ? clamp(d[Math.floor(d.length / 2)], 35, 220) : 110;
+  };
+  const go = np => { stop(); hist.push(pos); ensure(np); pos = np; show(); };
+  // 다음 줄로 넘어가기: 줄바꿈 + (코드면 들여쓰기) + (짧은 줄이면 그 줄 전체)
+  const nextLineFrom = p => {
+    let np = p + 1;
+    if (kind === 'code') np = indentEnd(np);
+    if (isShort(np)) np = lineEnd(np);
+    return np;
+  };
+  function one() {                                   // 글자 키 한 번
+    tick();
+    ensure(pos + 400);
+    if (source[pos] === '\n') {                      // 줄 끝에서 계속 치면 다음 줄로(긴 줄이면 첫 글자까지)
+      const np = nextLineFrom(pos);
+      go(source[np] === '\n' ? np : Math.min(lineEnd(np), np + opts.speed));
+      return;
+    }
+    if (pos === lineStart(pos) && kind === 'code' && source[pos] === ' ') { go(isShort(pos) ? lineEnd(pos) : indentEnd(pos)); return; }
+    if (isShort(pos)) { go(lineEnd(pos)); return; }
+    go(Math.min(lineEnd(pos), pos + opts.speed));
+  }
   return {
-    type() { go(pos + opts.speed + (Math.random() < .3 ? 1 : 0)); },
-    space() {                                        // 다음 단어 끝(공백)까지
-      ensure(pos + 200);
-      const sp = source.indexOf(' ', pos + 1), nl = source.indexOf('\n', pos);
-      let end = sp < 0 ? pos + opts.speed : sp + 1;
-      if (nl >= 0 && nl < end) end = nl;
-      go(Math.max(end, pos + 1));
-    },
-    enter() {                                        // 이번 줄을 끝내고 줄 바꿈(코드는 다음 줄 들여쓰기까지)
-      ensure(pos + 400);
-      let end = source.indexOf('\n', pos) + 1;
-      if (kind === 'code') while (source[end] === ' ') end++;
-      go(end);
+    type: one,
+    space: one,                                      // 스페이스도 글자 하나
+    enter() {
+      tick();
+      const e = lineEnd(pos);
+      if (pos === e || e - pos <= SHORT) { go(nextLineFrom(e)); return; }
+      // 남은 부분이 길면 한 글자씩 자동 타이핑
+      stop(); hist.push(pos);
+      const target = nextLineFrom(e), gap = rhythm();
+      const step = () => {
+        if (pos < e) { pos++; show(); anim = setTimeout(step, gap * (0.7 + Math.random() * 0.6)); }
+        else { pos = target; show(); anim = null; }
+      };
+      step();
     },
     tab() {
+      tick();
       ensure(pos + 50);
-      let end = pos;
-      while (source[end] === ' ') end++;
+      const end = indentEnd(pos);
       go(end > pos ? end : pos + (kind === 'code' ? 4 : 2));
     },
-    back() { if (hist.length) { pos = hist.pop(); render(source.slice(0, pos)); } }
+    back() { stop(); if (hist.length) { pos = hist.pop(); show(); } },
+    stop
   };
 }
 
@@ -168,7 +205,7 @@ Router.on('/', root => {
       </div>
       <div class="card stack">
         <div><label class="field">필기 과목</label><div class="row" id="subj">${Object.entries(NOTES).map(([k, n]) => `<button class="chip ${opts.subject === k ? 'on' : ''}" data-k="${k}">${n.name}</button>`).join('')}</div></div>
-        <div><label class="field">타자 속도 (한 번 누를 때 글자 수)</label><input type="range" id="spd" min="1" max="8" value="${opts.speed}"></div>
+        <div><label class="field">긴 줄에서 한 번 누를 때 나오는 글자 수 <b id="spdv">${opts.speed}</b> (짧은 줄은 한 번에 나와요)</label><input type="range" id="spd" min="1" max="4" value="${opts.speed}"></div>
         <label class="row small"><input type="checkbox" id="dis" ${opts.disguise ? 'checked' : ''}> 탭 이름·아이콘을 강의자료 PDF처럼 바꾸기</label>
         <label class="row small"><input type="checkbox" id="raw" ${opts.raw ? 'checked' : ''}> 화면 맨 아래에 내가 실제로 친 내용 한 줄로 보여 주기</label>
       </div>
@@ -176,7 +213,7 @@ Router.on('/', root => {
       <p class="muted small center">교수님 죄송합니다. 이 사이트는 농담입니다. 수업은 들읍시다.</p>
     </section>`));
   $$('#subj .chip').forEach(b => b.onclick = () => { opts.subject = b.dataset.k; saveOpts(); $$('#subj .chip').forEach(x => x.classList.toggle('on', x === b)); });
-  $('#spd').oninput = e => { opts.speed = Number(e.target.value); saveOpts(); };
+  $('#spd').oninput = e => { opts.speed = Number(e.target.value); $('#spdv').textContent = opts.speed; saveOpts(); };
   $('#dis').onchange = e => { opts.disguise = e.target.checked; saveOpts(); };
   $('#raw').onchange = e => { opts.raw = e.target.checked; saveOpts(); };
 });
@@ -206,7 +243,7 @@ Router.on('/note', root => {
     paper.scrollTop = paper.scrollHeight;
   }, 'note');
   const io = bindInput({ type: t.type, space: t.space, enter: t.enter, tab: t.tab, back: t.back }, paper);
-  return () => { io.off(); document.body.classList.remove('mode-on'); disguise(false); };
+  return () => { t.stop(); io.off(); document.body.classList.remove('mode-on'); disguise(false); };
 });
 
 /* ---------- 코딩 모드(코드 편집기) ---------- */
@@ -238,7 +275,7 @@ Router.on('/code', root => {
     }
   }, 'code');
   const io = bindInput({ type: t.type, space: t.space, enter: t.enter, tab: t.tab, back: t.back }, ed);
-  return () => { io.off(); document.body.classList.remove('mode-on', 'dark'); disguise(false); };
+  return () => { t.stop(); io.off(); document.body.classList.remove('mode-on', 'dark'); disguise(false); };
 });
 
 /* ---------- 엑셀 모드(스프레드시트) ---------- */
@@ -252,7 +289,7 @@ Router.on('/sheet', root => {
   const plan = (r, c) => c === 0 ? SHEET.rows[r] : c <= MONTHS ? String(values[r][c - 1]) : `=SUM(B${r + 2}:${colName(MONTHS)}${r + 2})`;
   const cell = Array.from({ length: ROWS }, () => Array(COLS).fill(null));   // 확정된 원본(숫자 문자열·수식·글자)
   let sel = { r: 0, c: 0 }, editing = false, editText = '', hist = [];
-  const perKey = () => Math.max(1, Math.floor(opts.speed / 2));
+  const perKey = () => opts.speed;
 
   root.append(h(`
     <section class="app sheet-app">
